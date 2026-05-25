@@ -720,8 +720,8 @@
     </div>
   </div>
 
-  <!-- Full-screen tap target -->
-  <div id="s2-arena" onclick="handleTap()">
+  <!-- Full-screen tap target — pointerdown registered in JS for zero latency -->
+  <div id="s2-arena">
     <div class="arena-bg-flash" id="arena-flash"></div>
     <div class="arena-main-text c-ready" id="arena-text">READY</div>
     <div class="arena-hint"       id="arena-hint">下のボタンでテスト開始</div>
@@ -730,7 +730,7 @@
 
   <div id="s2-bottom">
     <div id="s2-start-btn">
-      <button class="btn btn-primary" onclick="startCNS(); event.stopPropagation()">▶ テスト開始</button>
+      <button class="btn btn-primary" id="cns-start-btn">▶ テスト開始</button>
     </div>
     <div id="s2-instr" style="display:none">
       <div class="arena-instr">
@@ -782,7 +782,7 @@
         <div class="ring-detail">
           <div style="font-size:11px; color:var(--muted)">反応時間</div>
           <div class="rd-rt" id="r-rt">—</div>
-          <div class="rd-rt-u">ミリ秒</div>
+          <div class="rd-rt-u" id="r-rt-ms" style="font-size:13px; color:var(--muted); margin-top:1px">—</div>
           <div class="rd-cond" id="r-cond">—</div>
           <div class="bar-track">
             <div class="bar-fill" id="r-bar" style="width:0%"></div>
@@ -790,6 +790,26 @@
         </div>
       </div>
       <div class="hist-row" id="r-hist"></div>
+    </div>
+
+    <!-- Predicted Time -->
+    <div class="card" style="background:linear-gradient(135deg,rgba(74,158,255,0.06),rgba(0,232,122,0.04));border-color:rgba(74,158,255,0.2)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div class="card-lbl" style="color:var(--blue)">本日の予測タイム</div>
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <div style="font-size:48px;font-weight:900;line-height:1;color:var(--text)" id="pred-time-val">—</div>
+            <div style="font-size:16px;color:var(--muted)">秒</div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px" id="pred-stride-lbl">同ストライドで試算</div>
+        </div>
+        <div style="text-align:right;padding-left:12px">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase">目標</div>
+          <div style="font-size:24px;font-weight:800;color:var(--muted)" id="pred-target-val">—</div>
+          <div style="font-size:11px;color:var(--muted)">秒</div>
+          <div style="font-size:14px;font-weight:800;margin-top:8px;letter-spacing:0.5px" id="pred-diff-val">—</div>
+        </div>
+      </div>
     </div>
 
     <!-- Pitch confirm -->
@@ -909,6 +929,7 @@
     <div class="comp-trophy">🏆</div>
     <div class="comp-goal">G O A L !</div>
     <div class="comp-stats">
+      <div class="comp-stat-row">予測タイム: <span class="comp-stat-val" id="co-time">—</span></div>
       <div class="comp-stat-row">CNS スコア: <span class="comp-stat-val" id="co-cns">—</span></div>
       <div class="comp-stat-row">使用ピッチ: <span class="comp-stat-val" id="co-pitch">—</span> Hz</div>
       <div class="comp-stat-row">プロファイル: <span class="comp-stat-val" id="co-prof">—</span></div>
@@ -963,12 +984,13 @@
 // ═══════════════════════════════════════════════════════
 const S = {
   // Settings
-  baseline:   150,    // ms
-  targetTime: 10.80,  // s
-  stride:     2.10,   // m
-  profile:    'balance',
-  maxPitch:   4.89,   // Hz (auto-calc)
-  finalPitch: 4.89,   // Hz (may be adjusted)
+  baseline:      150,    // ms
+  targetTime:    10.80,  // s  (goal)
+  stride:        2.10,   // m
+  profile:       'balance',
+  maxPitch:      4.89,   // Hz (auto-calc from targetTime + stride)
+  finalPitch:    4.89,   // Hz (may be adjusted)
+  predictedTime: 10.80,  // s  (CNS-adjusted physical prediction)
 
   // CNS
   cnsPhase:   'idle', // idle|marks|set|wait|fire|done|foul
@@ -1209,7 +1231,7 @@ function handleTap() {
     if (S.cnsHist.length > 4) S.cnsHist.pop();
 
     // Flash result briefly then auto-advance
-    setArena(`${Math.round(rt)} ms`, `CNS ${score}%`, score >= 105 ? 'c-fire' : score >= 98 ? 'c-set' : 'c-marks');
+    setArena(`${(rt/1000).toFixed(3)}s`, `CNS ${score}%`, score >= 105 ? 'c-fire' : score >= 98 ? 'c-set' : 'c-marks');
     document.getElementById('arena-rt').textContent = '';
     setTimeout(() => {
       calcFinalPitch();
@@ -1258,13 +1280,24 @@ function calcFinalPitch() {
   S.finalPitch = S.cnsScore
     ? parseFloat((S.maxPitch * S.cnsScore / 100).toFixed(2))
     : S.maxPitch;
+
+  // ── 物理予測タイム ────────────────────────────────────
+  // 同じストライドを維持した場合、ピッチがCNS%分スケールするため
+  // 平均速度も同率で変化 → predictedTime = targetTime × (100 / cnsScore)
+  // 例: CNS 95% → 10.80 × (100/95) ≈ 11.37s
+  //     CNS 105% → 10.80 × (100/105) ≈ 10.29s
+  S.predictedTime = S.cnsScore
+    ? parseFloat((S.targetTime * 100 / S.cnsScore).toFixed(2))
+    : S.targetTime;
 }
 
 function renderResult() {
   const rt    = S.cnsRT;
   const score = S.cnsScore;
 
-  document.getElementById('r-rt').textContent    = Math.round(rt);
+  // ── 反応時間: 秒と ms を併記 ──────────────────────────
+  document.getElementById('r-rt').textContent    = `${(rt/1000).toFixed(3)}s`;
+  document.getElementById('r-rt-ms').textContent = `(${Math.round(rt)} ms)`;
   document.getElementById('r-score').textContent = `${score}%`;
 
   let cond, col;
@@ -1286,8 +1319,26 @@ function renderResult() {
 
   // History
   document.getElementById('r-hist').innerHTML = S.cnsHist.map((h, i) =>
-    `<div class="hist-chip">${i===0?'今回':i+'回前'}: ${Math.round(h.rt)}ms (${h.score}%)</div>`
+    `<div class="hist-chip">${i===0?'今回':i+'回前'}: ${(h.rt/1000).toFixed(3)}s (${h.score}%)</div>`
   ).join('');
+
+  // ── 予測タイム表示 ────────────────────────────────────
+  const pt = S.predictedTime;
+  document.getElementById('pred-stride-lbl').textContent = `同ストライド（${S.stride.toFixed(2)}m）で試算`;
+  document.getElementById('pred-time-val').textContent   = pt.toFixed(2);
+  document.getElementById('pred-target-val').textContent = S.targetTime.toFixed(2);
+  const diff    = pt - S.targetTime;
+  const diffEl  = document.getElementById('pred-diff-val');
+  if (Math.abs(diff) < 0.02) {
+    diffEl.textContent  = '±0.00s';
+    diffEl.style.color  = 'var(--green)';
+  } else if (diff > 0) {
+    diffEl.textContent  = `+${diff.toFixed(2)}s ⚠️`;
+    diffEl.style.color  = 'var(--orange)';
+  } else {
+    diffEl.textContent  = `${diff.toFixed(2)}s 🔥`;
+    diffEl.style.color  = 'var(--gold)';
+  }
 
   // Pitch
   document.getElementById('pc-val').textContent   = S.finalPitch.toFixed(2);
@@ -1308,7 +1359,7 @@ function nudgeFinal(d) {
 function renderPhaseMini() {
   const p  = PROF[S.profile];
   const fp = S.finalPitch;
-  const tt = S.targetTime;
+  const tt = S.predictedTime || S.targetTime; // 予測タイムでフェーズ秒数を表示
   const r  = p.ratios;
   const t  = r.map(x => (tt * x).toFixed(2));
 
@@ -1379,7 +1430,7 @@ function buildBeats(fp, tt, p) {
 
 function startSim() {
   const fp = S.finalPitch;
-  const tt = S.targetTime;
+  const tt = S.predictedTime || S.targetTime; // ← 物理予測タイムでシミュレーション時間を決定
   const p  = PROF[S.profile];
   const r  = p.ratios;
 
@@ -1414,7 +1465,7 @@ function simTick() {
   if (!S.simRunning) return;
 
   const elapsed = (performance.now() - S.simStart) / 1000;
-  const tt      = S.targetTime;
+  const tt      = S.predictedTime || S.targetTime; // ← 予測タイムで全アニメーションを同期
 
   if (elapsed >= tt + 0.7) { finishSim(); return; }
 
@@ -1505,6 +1556,8 @@ function finishSim() {
   cancelAnimationFrame(S.simRAF);
 
   const p = PROF[S.profile];
+  const pt = S.predictedTime || S.targetTime;
+  document.getElementById('co-time').textContent  = `${pt.toFixed(2)}s（目標 ${S.targetTime.toFixed(2)}s）`;
   document.getElementById('co-cns').textContent   = S.cnsScore ? `${S.cnsScore}%` : '未測定';
   document.getElementById('co-pitch').textContent = S.finalPitch.toFixed(2);
   document.getElementById('co-prof').textContent  = p.label;
@@ -1591,6 +1644,24 @@ document.addEventListener('touchmove', e => {
   calcMaxPitch();
   setProfile('balance');
   goTo(1);
+
+  // ── pointerdown: タップ遅延を極限まで削減 ──────────────
+  // CNS アリーナ全体を超低遅延タップターゲットに設定
+  // click(300ms遅延) → touchstart(受動的) → pointerdown(即時) の順で最速
+  const arena = document.getElementById('s2-arena');
+  arena.addEventListener('pointerdown', function(e) {
+    // スタートボタン上のタップは無視（handleTap に流さない）
+    if (e.target.closest('#s2-start-btn')) return;
+    e.preventDefault(); // 後続のclick/touchstartをキャンセル
+    handleTap();
+  }, { passive: false });
+
+  // テスト開始ボタンも pointerdown で即時反応
+  document.getElementById('cns-start-btn').addEventListener('pointerdown', function(e) {
+    e.preventDefault();
+    e.stopPropagation(); // アリーナの pointerdown に伝搬させない
+    startCNS();
+  }, { passive: false });
 })();
 </script>
 </body>
