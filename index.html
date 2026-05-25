@@ -1,0 +1,1597 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+
+  <!-- ── iOS PWA ─────────────────────────────────── -->
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0,
+             minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable"          content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title"            content="CNS Pace">
+  <meta name="mobile-web-app-capable"                content="yes">
+  <meta name="theme-color"                           content="#08080f">
+  <!-- ────────────────────────────────────────────── -->
+
+  <title>CNS Pacemaker</title>
+
+  <style>
+  /* ═══════════════════════════════════════════════════
+     TOKENS
+  ═══════════════════════════════════════════════════ */
+  :root {
+    --bg:      #08080f;
+    --s1:      #111118;
+    --s2:      #1a1a26;
+    --border:  #252535;
+    --gold:    #FFD700;
+    --orange:  #FF6B35;
+    --green:   #00E87A;
+    --blue:    #4A9EFF;
+    --red:     #FF4444;
+    --text:    #F0F0F0;
+    --muted:   #777;
+    --font:    -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+
+    /* safe areas */
+    --sat: env(safe-area-inset-top,    0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left,   0px);
+    --sar: env(safe-area-inset-right,  0px);
+  }
+
+  /* ═══════════════════════════════════════════════════
+     GLOBAL RESET
+  ═══════════════════════════════════════════════════ */
+  *, *::before, *::after {
+    margin: 0; padding: 0; box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+  html {
+    height: 100%; background: var(--bg);
+    /* prevent iOS overscroll on body */
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow: hidden;
+    overscroll-behavior: none;
+    /* iOS text size adjust */
+    -webkit-text-size-adjust: 100%;
+  }
+  input, button { font-family: var(--font); }
+
+  /* ═══════════════════════════════════════════════════
+     SCREEN SYSTEM  (4 full-viewport panels)
+  ═══════════════════════════════════════════════════ */
+  .screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg);
+    transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+    will-change: transform;
+    /* each screen manages its own scroll */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+  .screen.s-right  { transform: translateX(105%); pointer-events: none; }
+  .screen.s-left   { transform: translateX(-105%); pointer-events: none; }
+  .screen.s-active { transform: translateX(0);    pointer-events: all; }
+
+  /* screens 2 & 4 are non-scrolling full-page layouts */
+  #s2, #s4 {
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    touch-action: none;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     SHARED: PROGRESS DOTS
+  ═══════════════════════════════════════════════════ */
+  .step-dots {
+    display: flex; gap: 6px;
+    align-items: center; justify-content: center;
+    padding: 8px 0 0;
+  }
+  .step-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--border); transition: all 0.3s;
+  }
+  .step-dot.on { background: var(--gold); transform: scale(1.3); }
+  .step-dot.done { background: var(--orange); }
+
+  /* ═══════════════════════════════════════════════════
+     SHARED: HEADER BAR
+  ═══════════════════════════════════════════════════ */
+  .app-header {
+    display: flex; align-items: center;
+    padding: calc(var(--sat) + 14px) 16px 12px;
+    background: rgba(8,8,15,0.96);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 40;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    flex-shrink: 0;
+  }
+  .back-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--s2); border: 1px solid var(--border);
+    color: var(--text); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .back-btn:active { opacity: 0.6; }
+  .header-title {
+    flex: 1; text-align: center;
+    font-size: 13px; font-weight: 800;
+    letter-spacing: 2px; text-transform: uppercase; color: var(--text);
+  }
+  .header-right {
+    width: 36px; display: flex; justify-content: flex-end;
+  }
+  .gear-btn {
+    background: none; border: none; color: var(--muted);
+    font-size: 20px; cursor: pointer; padding: 4px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gear-btn:active { color: var(--text); }
+
+  /* ═══════════════════════════════════════════════════
+     SHARED: CARDS / BUTTONS / INPUTS
+  ═══════════════════════════════════════════════════ */
+  .card {
+    background: var(--s1); border: 1px solid var(--border);
+    border-radius: 18px; padding: 18px 16px; margin-bottom: 12px;
+  }
+  .card-lbl {
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+
+  .btn {
+    width: 100%; padding: 17px 20px; border: none; border-radius: 14px;
+    font-family: var(--font); font-size: 15px; font-weight: 800;
+    letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary {
+    background: linear-gradient(135deg, #FFD700, #FF6B35); color: #000;
+  }
+  .btn-secondary {
+    background: var(--s2); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-danger {
+    background: rgba(255,68,68,0.12); color: var(--red);
+    border: 1px solid rgba(255,68,68,0.25);
+  }
+  .btn-ghost {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+  }
+  .btn-sm { padding: 11px 16px; font-size: 13px; width: auto; border-radius: 10px; }
+
+  /* Steppers */
+  .stepper {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .step-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--s2); border: 1px solid var(--border);
+    color: var(--text); font-size: 22px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; flex-shrink: 0;
+    transition: all 0.12s;
+  }
+  .step-btn:active { background: var(--border); transform: scale(0.9); }
+
+  /* Number input */
+  input[type="number"] {
+    background: var(--s2); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text);
+    font-size: 16px; font-weight: 700; /* 16px prevents iOS zoom */
+    padding: 10px 8px; text-align: center;
+    -moz-appearance: textfield; width: 88px;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { display: none; }
+  input[type="number"]:focus { outline: none; border-color: var(--gold); }
+
+  /* ═══════════════════════════════════════════════════
+     SCREEN 1 — SETUP
+  ═══════════════════════════════════════════════════ */
+  #s1 .app-header .logo {
+    flex: 1; text-align: center;
+  }
+  #s1 .logo-main {
+    font-size: 18px; font-weight: 900; letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  #s1 .logo-main span { color: var(--gold); }
+  #s1 .logo-sub {
+    font-size: 9px; color: var(--muted); letter-spacing: 2px;
+    text-transform: uppercase; margin-top: 1px;
+  }
+
+  .s1-body {
+    padding: 14px 16px calc(var(--sab) + 100px);
+  }
+
+  /* Big value stepper card */
+  .val-card {
+    background: var(--s1); border: 1px solid var(--border);
+    border-radius: 18px; padding: 16px; margin-bottom: 12px;
+  }
+  .val-card-lbl {
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+  .val-stepper {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .val-big {
+    flex: 1; text-align: center;
+  }
+  .val-num {
+    font-size: 52px; font-weight: 900; letter-spacing: -2px; line-height: 1;
+    color: var(--text);
+  }
+  .val-unit { font-size: 14px; color: var(--muted); margin-top: 2px; }
+
+  /* Profile grid */
+  .prof-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    margin-top: 4px;
+  }
+  .prof-card {
+    background: var(--s2); border: 2px solid var(--border);
+    border-radius: 13px; padding: 14px 8px; text-align: center;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .prof-card.sel {
+    border-color: var(--gold);
+    background: rgba(255, 215, 0, 0.08);
+  }
+  .prof-icon { font-size: 28px; }
+  .prof-name { font-size: 12px; font-weight: 800; margin-top: 6px; }
+  .prof-tag  { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* Pitch preview bar */
+  .pitch-preview {
+    background: linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,107,53,0.06));
+    border: 1px solid rgba(255,215,0,0.2);
+    border-radius: 14px; padding: 14px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .pp-label { font-size: 11px; color: var(--muted); }
+  .pp-main  { font-size: 13px; font-weight: 700; color: var(--muted); margin-top: 3px; }
+  .pp-val   { font-size: 38px; font-weight: 900; color: var(--gold); letter-spacing: -1px; }
+  .pp-hz    { font-size: 14px; color: var(--muted); }
+
+  /* Sticky bottom button */
+  .s1-cta {
+    position: fixed; bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 100%; max-width: 430px;
+    padding: 12px 16px calc(var(--sab) + 12px);
+    background: linear-gradient(to top, var(--bg) 70%, transparent);
+    z-index: 30;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     SCREEN 2 — CNS TEST
+  ═══════════════════════════════════════════════════ */
+  #s2-arena {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+    cursor: pointer; user-select: none;
+    -webkit-user-select: none;
+  }
+  .arena-bg-flash {
+    position: absolute; inset: 0; opacity: 0; pointer-events: none;
+    background: radial-gradient(circle at center, rgba(255,200,50,0.35), transparent 65%);
+    transition: opacity 0.08s;
+  }
+  @keyframes gun-fire {
+    0%   { opacity: 0; }
+    8%   { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  .arena-bg-flash.fire-anim { animation: gun-fire 0.55s ease forwards; }
+
+  .arena-main-text {
+    font-size: 44px; font-weight: 900;
+    letter-spacing: 6px; text-transform: uppercase; line-height: 1.1;
+    text-align: center;
+    transition: color 0.3s;
+  }
+  .arena-hint {
+    font-size: 14px; color: var(--muted); margin-top: 10px; text-align: center;
+  }
+  .arena-rt-live {
+    font-size: 12px; color: var(--muted); margin-top: 14px;
+    background: rgba(255,255,255,0.06);
+    padding: 4px 16px; border-radius: 20px;
+    min-height: 26px; display: flex; align-items: center;
+  }
+
+  .c-ready { color: var(--muted); }
+  .c-marks { color: #bbb; }
+  .c-set   { color: var(--orange); }
+  .c-fire  { color: var(--gold); }
+  .c-foul  { color: var(--red); }
+
+  #s2-bottom {
+    flex-shrink: 0;
+    padding: 16px 16px calc(var(--sab) + 16px);
+    text-align: center;
+  }
+  .arena-instr {
+    font-size: 12px; color: var(--muted);
+    background: var(--s2); border-radius: 10px;
+    padding: 10px 14px; line-height: 1.6;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     SCREEN 3 — RESULT + CONFIRM
+  ═══════════════════════════════════════════════════ */
+  .s3-body {
+    padding: 14px 16px calc(var(--sab) + 100px);
+  }
+
+  /* Score ring */
+  .ring-row {
+    display: flex; align-items: center; gap: 18px; margin-bottom: 4px;
+  }
+  .ring-wrap {
+    position: relative; width: 110px; height: 110px; flex-shrink: 0;
+  }
+  .ring-wrap svg { transform: rotate(-90deg); }
+  .ring-inner {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .ring-score-val { font-size: 28px; font-weight: 900; }
+  .ring-score-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .ring-detail { flex: 1; }
+  .rd-rt { font-size: 44px; font-weight: 900; line-height: 1; }
+  .rd-rt-u { font-size: 13px; color: var(--muted); }
+  .rd-cond { font-size: 16px; font-weight: 800; margin-top: 10px; }
+  .bar-track {
+    background: var(--s2); border-radius: 5px; height: 5px; overflow: hidden; margin-top: 10px;
+  }
+  .bar-fill {
+    height: 100%; border-radius: 5px;
+    background: linear-gradient(90deg, var(--orange), var(--gold));
+    transition: width 0.7s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .hist-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .hist-chip {
+    background: var(--s2); border: 1px solid var(--border);
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; color: var(--muted);
+  }
+
+  /* Pitch confirm section */
+  .pitch-confirm {
+    background: linear-gradient(135deg, rgba(255,215,0,0.07), rgba(255,107,53,0.05));
+    border: 1px solid rgba(255,215,0,0.18);
+    border-radius: 18px; padding: 18px 16px; margin-bottom: 12px;
+  }
+  .pc-top {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+  }
+  .pc-lbl { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+  .pc-formula { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .pc-big { font-size: 52px; font-weight: 900; letter-spacing: -2px; color: var(--gold); line-height: 1; }
+  .pc-hz  { font-size: 15px; color: var(--muted); }
+  .pc-adj {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 14px; border-top: 1px solid rgba(255,215,0,0.12);
+  }
+  .pc-adj-lbl { font-size: 12px; color: var(--muted); }
+
+  /* Phase mini cards */
+  .phase-mini { display: flex; flex-direction: column; gap: 6px; }
+  .pm-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 10px;
+  }
+  .pm-1 { background: rgba(74,158,255,0.08); }
+  .pm-2 { background: rgba(255,215,0,0.08); }
+  .pm-3 { background: rgba(0,232,122,0.08); }
+  .pm-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .pm-text { font-size: 12px; line-height: 1.5; flex: 1; }
+  .pm-hz { font-size: 14px; font-weight: 800; flex-shrink: 0; }
+
+  .s3-cta {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 430px;
+    padding: 10px 16px calc(var(--sab) + 10px);
+    background: linear-gradient(to top, var(--bg) 75%, transparent);
+    z-index: 30; display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     SCREEN 4 — SIMULATION
+  ═══════════════════════════════════════════════════ */
+  #s4-header {
+    flex-shrink: 0;
+    padding: calc(var(--sat) + 14px) 16px 12px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,8,15,0.98);
+  }
+  .s4-phase-badge {
+    flex: 1;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 20px;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.8px;
+    text-transform: uppercase; justify-content: center;
+  }
+  .pb1 { background: rgba(74,158,255,0.15); color: var(--blue); }
+  .pb2 { background: rgba(255,215,0,0.15);  color: var(--gold); }
+  .pb3 { background: rgba(0,232,122,0.15);  color: var(--green); }
+
+  #s4-pitch-row {
+    flex-shrink: 0;
+    text-align: center; padding: 14px 16px 10px;
+  }
+  .s4-hz-val { font-size: 64px; font-weight: 900; letter-spacing: -3px; color: var(--gold); line-height: 1; }
+  .s4-hz-lbl { font-size: 16px; color: var(--muted); }
+
+  /* Track */
+  #s4-track-wrap {
+    flex-shrink: 0;
+    margin: 0 16px; height: 70px;
+    background: var(--s2); border-radius: 12px;
+    position: relative; overflow: hidden;
+  }
+  .track-lane { position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.08); }
+  .track-stripe {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: rgba(255,255,255,0.1);
+    display: flex; flex-direction: column;
+    justify-content: flex-end; padding-bottom: 5px; align-items: center;
+  }
+  .track-stripe-lbl { font-size: 9px; color: var(--muted); white-space: nowrap; }
+  .runner-trail {
+    position: absolute; top: 50%; left: 0;
+    height: 2px; background: linear-gradient(90deg, transparent, rgba(255,215,0,0.25));
+    transform: translateY(-50%); width: 0%; border-radius: 1px;
+  }
+  .runner-dot {
+    position: absolute; top: 50%; left: 2%;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 16px rgba(255,215,0,0.8), 0 0 32px rgba(255,215,0,0.3);
+    transform: translate(-50%, -50%);
+    z-index: 2;
+  }
+
+  /* Waveform */
+  #s4-wave {
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; height: 48px; padding: 0 24px; margin: 8px 0;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .wbar {
+    width: 5px; border-radius: 3px; background: var(--gold); height: 4px;
+    transition: height 0.06s ease, opacity 0.06s ease;
+  }
+
+  /* Stats */
+  #s4-stats {
+    flex-shrink: 0;
+    display: flex; gap: 8px; padding: 0 16px; margin: 4px 0;
+  }
+  .s4-stat {
+    flex: 1; background: var(--s2); border-radius: 12px;
+    padding: 12px 8px; text-align: center;
+  }
+  .s4-stat-val { font-size: 26px; font-weight: 900; line-height: 1; }
+  .s4-stat-lbl { font-size: 10px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Progress bar */
+  #s4-prog-track {
+    flex-shrink: 0;
+    margin: 10px 16px 0; height: 4px; border-radius: 2px;
+    background: var(--s2); overflow: hidden;
+  }
+  #s4-prog-fill {
+    height: 100%; border-radius: 2px; width: 0%;
+    background: linear-gradient(90deg, var(--blue), var(--gold));
+  }
+
+  /* Spacer */
+  #s4-spacer { flex: 1; min-height: 8px; }
+
+  /* Stop button */
+  #s4-stop-area {
+    flex-shrink: 0;
+    padding: 12px 16px calc(var(--sab) + 16px);
+  }
+
+  /* Completion overlay */
+  #s4-complete {
+    position: absolute; inset: 0; z-index: 50;
+    background: rgba(8,8,15,0.95);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 32px 24px calc(var(--sab) + 32px);
+    gap: 8px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  #s4-complete.show { opacity: 1; pointer-events: all; }
+  .comp-trophy { font-size: 72px; line-height: 1; }
+  .comp-goal   { font-size: 48px; font-weight: 900; color: var(--green); letter-spacing: 4px; }
+  .comp-stats  { margin: 16px 0; text-align: center; }
+  .comp-stat-row { font-size: 14px; color: var(--muted); line-height: 2; }
+  .comp-stat-val { font-weight: 800; color: var(--text); }
+  .comp-btns   { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+  /* ═══════════════════════════════════════════════════
+     MILESTONE FLASH
+  ═══════════════════════════════════════════════════ */
+  #mflash {
+    position: fixed; inset: 0; z-index: 900;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    pointer-events: none; opacity: 0;
+  }
+  #mflash.show {
+    animation: mf-in 0.95s ease forwards;
+  }
+  @keyframes mf-in {
+    0%   { opacity: 0; transform: scale(0.75); }
+    18%  { opacity: 1; transform: scale(1.06); }
+    65%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.04); }
+  }
+  .mf-text {
+    font-size: 54px; font-weight: 900; letter-spacing: 2px;
+    text-shadow: 0 0 60px currentColor; line-height: 1;
+  }
+  .mf-sub {
+    font-size: 19px; font-weight: 700; margin-top: 8px;
+    text-shadow: 0 0 30px currentColor;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     SETTINGS SHEET
+  ═══════════════════════════════════════════════════ */
+  #sheet-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 80; opacity: 0; pointer-events: none; transition: opacity 0.3s;
+  }
+  #sheet-overlay.open { opacity: 1; pointer-events: all; }
+  #settings-sheet {
+    position: fixed; bottom: 0; left: 50%;
+    transform: translateX(-50%) translateY(100%);
+    width: 100%; max-width: 430px;
+    background: #14141e; border-top: 1px solid var(--border);
+    border-radius: 22px 22px 0 0;
+    padding: 20px 18px calc(var(--sab) + 24px);
+    z-index: 85;
+    transition: transform 0.34s cubic-bezier(0.32,0.72,0,1);
+  }
+  #settings-sheet.open { transform: translateX(-50%) translateY(0); }
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--border);
+    border-radius: 2px; margin: 0 auto 18px;
+  }
+
+  /* misc */
+  .divider { height: 1px; background: var(--border); margin: 14px 0; }
+  .input-row-hz {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0;
+  }
+  .input-row-hz:not(:last-child) { border-bottom: 1px solid var(--border); }
+  .ir-lbl .ir-main { font-size: 14px; font-weight: 600; }
+  .ir-lbl .ir-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  </style>
+</head>
+<body>
+
+<!-- ╔══════════════════════════════════════════╗
+     ║  SCREEN 1 — SETUP                        ║
+     ╚══════════════════════════════════════════╝ -->
+<div id="s1" class="screen s-active">
+
+  <div class="app-header">
+    <div style="width:36px"></div><!-- spacer -->
+    <div class="logo" style="flex:1; text-align:center">
+      <div class="logo-main">CNS <span>Pacemaker</span></div>
+      <div class="logo-sub">100m Sprint System</div>
+    </div>
+    <div class="header-right">
+      <button class="gear-btn" onclick="toggleSettings()">⚙</button>
+    </div>
+  </div>
+
+  <div class="step-dots" style="padding:10px 0 0">
+    <div class="step-dot on"  id="d1"></div>
+    <div class="step-dot"     id="d2"></div>
+    <div class="step-dot"     id="d3"></div>
+    <div class="step-dot"     id="d4"></div>
+  </div>
+
+  <div class="s1-body">
+
+    <!-- 目標タイム -->
+    <div class="val-card">
+      <div class="val-card-lbl">目標タイム</div>
+      <div class="val-stepper">
+        <button class="step-btn" id="tt-minus" ontouchstart="startRepeat('tt',-0.01)" ontouchend="stopRepeat()" onmousedown="startRepeat('tt',-0.01)" onmouseup="stopRepeat()" onmouseleave="stopRepeat()">−</button>
+        <div class="val-big">
+          <div class="val-num" id="tt-val">10.80</div>
+          <div class="val-unit">秒（100m）</div>
+        </div>
+        <button class="step-btn" id="tt-plus" ontouchstart="startRepeat('tt',+0.01)" ontouchend="stopRepeat()" onmousedown="startRepeat('tt',+0.01)" onmouseup="stopRepeat()" onmouseleave="stopRepeat()">+</button>
+      </div>
+    </div>
+
+    <!-- ストライド長 -->
+    <div class="val-card">
+      <div class="val-card-lbl">ストライド長</div>
+      <div class="val-stepper">
+        <button class="step-btn" ontouchstart="startRepeat('st',-0.05)" ontouchend="stopRepeat()" onmousedown="startRepeat('st',-0.05)" onmouseup="stopRepeat()" onmouseleave="stopRepeat()">−</button>
+        <div class="val-big">
+          <div class="val-num" id="st-val">2.10</div>
+          <div class="val-unit">m（平均歩幅）</div>
+        </div>
+        <button class="step-btn" ontouchstart="startRepeat('st',+0.05)" ontouchend="stopRepeat()" onmousedown="startRepeat('st',+0.05)" onmouseup="stopRepeat()" onmouseleave="stopRepeat()">+</button>
+      </div>
+    </div>
+
+    <!-- プロファイル -->
+    <div class="card">
+      <div class="card-lbl">走行プロファイル</div>
+      <div class="prof-grid">
+        <div class="prof-card"     id="pf-front"   onclick="setProfile('front')">
+          <div class="prof-icon">🔥</div>
+          <div class="prof-name">前半型</div>
+          <div class="prof-tag">ダッシュ重視</div>
+        </div>
+        <div class="prof-card sel" id="pf-balance" onclick="setProfile('balance')">
+          <div class="prof-icon">⚡</div>
+          <div class="prof-name">バランス型</div>
+          <div class="prof-tag">推奨</div>
+        </div>
+        <div class="prof-card"     id="pf-back"    onclick="setProfile('back')">
+          <div class="prof-icon">💪</div>
+          <div class="prof-name">後半型</div>
+          <div class="prof-tag">ラスト重視</div>
+        </div>
+      </div>
+      <div id="prof-desc" style="margin-top:12px; font-size:12px; color:var(--muted); line-height:1.7"></div>
+    </div>
+
+    <!-- Pitch preview -->
+    <div class="pitch-preview">
+      <div>
+        <div class="pp-label">算出 MAX ピッチ</div>
+        <div class="pp-main" id="pp-formula">—</div>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:4px">
+        <div class="pp-val" id="pp-val">—</div>
+        <div class="pp-hz">Hz</div>
+      </div>
+    </div>
+
+  </div><!-- /s1-body -->
+
+  <!-- Sticky CTA -->
+  <div class="s1-cta">
+    <button class="btn btn-primary" onclick="goToS2()">🧠 CNS テストへ →</button>
+  </div>
+
+</div><!-- /s1 -->
+
+
+<!-- ╔══════════════════════════════════════════╗
+     ║  SCREEN 2 — CNS TEST                     ║
+     ╚══════════════════════════════════════════╝ -->
+<div id="s2" class="screen s-right">
+
+  <div class="app-header">
+    <button class="back-btn" onclick="goTo(1)">←</button>
+    <div class="header-title">CNS テスト</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px" class="header-right">
+      <div class="step-dots" style="padding:0">
+        <div class="step-dot done"></div>
+        <div class="step-dot on"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full-screen tap target -->
+  <div id="s2-arena" onclick="handleTap()">
+    <div class="arena-bg-flash" id="arena-flash"></div>
+    <div class="arena-main-text c-ready" id="arena-text">READY</div>
+    <div class="arena-hint"       id="arena-hint">下のボタンでテスト開始</div>
+    <div class="arena-rt-live"    id="arena-rt"></div>
+  </div>
+
+  <div id="s2-bottom">
+    <div id="s2-start-btn">
+      <button class="btn btn-primary" onclick="startCNS(); event.stopPropagation()">▶ テスト開始</button>
+    </div>
+    <div id="s2-instr" style="display:none">
+      <div class="arena-instr">
+        <strong style="color:var(--gold)">号砲が鳴ったら即タップ！</strong><br>
+        画面のどこをタップしても計測できます。
+      </div>
+    </div>
+  </div>
+
+</div><!-- /s2 -->
+
+
+<!-- ╔══════════════════════════════════════════╗
+     ║  SCREEN 3 — RESULT + CONFIRM             ║
+     ╚══════════════════════════════════════════╝ -->
+<div id="s3" class="screen s-right">
+
+  <div class="app-header">
+    <button class="back-btn" onclick="goTo(2); resetCNS()">←</button>
+    <div class="header-title">テスト結果</div>
+    <div class="header-right">
+      <div class="step-dots" style="padding:0">
+        <div class="step-dot done"></div>
+        <div class="step-dot done"></div>
+        <div class="step-dot on"></div>
+        <div class="step-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="s3-body">
+
+    <!-- Score + RT -->
+    <div class="card">
+      <div class="card-lbl">CNS スコア</div>
+      <div class="ring-row">
+        <div class="ring-wrap">
+          <svg width="110" height="110" viewBox="0 0 110 110">
+            <circle cx="55" cy="55" r="46" fill="none" stroke="#1a1a26" stroke-width="9"/>
+            <circle id="ring-fill" cx="55" cy="55" r="46" fill="none"
+              stroke="#FFD700" stroke-width="9" stroke-linecap="round"
+              stroke-dasharray="289.03" stroke-dashoffset="289.03"/>
+          </svg>
+          <div class="ring-inner">
+            <div class="ring-score-val" id="r-score" style="color:var(--gold)">—</div>
+            <div class="ring-score-lbl">CNS %</div>
+          </div>
+        </div>
+        <div class="ring-detail">
+          <div style="font-size:11px; color:var(--muted)">反応時間</div>
+          <div class="rd-rt" id="r-rt">—</div>
+          <div class="rd-rt-u">ミリ秒</div>
+          <div class="rd-cond" id="r-cond">—</div>
+          <div class="bar-track">
+            <div class="bar-fill" id="r-bar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hist-row" id="r-hist"></div>
+    </div>
+
+    <!-- Pitch confirm -->
+    <div class="pitch-confirm">
+      <div class="pc-top">
+        <div>
+          <div class="pc-lbl">推奨 MAX ピッチ（CNS 補正済み）</div>
+          <div class="pc-formula" id="pc-formula">—</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:14px">
+        <div class="pc-big" id="pc-val">—</div>
+        <div class="pc-hz">Hz</div>
+      </div>
+      <div class="pc-adj">
+        <div class="pc-adj-lbl">最終ピッチを微調整</div>
+        <div class="stepper">
+          <button class="step-btn" style="width:38px;height:38px;font-size:18px" onclick="nudgeFinal(-0.05)">−</button>
+          <div style="min-width:70px; text-align:center">
+            <div style="font-size:22px; font-weight:900; color:var(--gold)" id="final-val">—</div>
+            <div style="font-size:10px; color:var(--muted)">Hz</div>
+          </div>
+          <button class="step-btn" style="width:38px;height:38px;font-size:18px" onclick="nudgeFinal(+0.05)">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase breakdown -->
+    <div class="card">
+      <div class="card-lbl">フェーズ別ピッチ</div>
+      <div class="phase-mini" id="phase-mini"></div>
+    </div>
+
+  </div><!-- /s3-body -->
+
+  <!-- Sticky CTA -->
+  <div class="s3-cta">
+    <button class="btn btn-primary" onclick="goToS4()">▶ シミュレーション開始</button>
+    <button class="btn btn-ghost" style="padding:12px; font-size:13px" onclick="goTo(2); resetCNS()">🔄 再テスト</button>
+  </div>
+
+</div><!-- /s3 -->
+
+
+<!-- ╔══════════════════════════════════════════╗
+     ║  SCREEN 4 — SIMULATION                   ║
+     ╚══════════════════════════════════════════╝ -->
+<div id="s4" class="screen s-right">
+
+  <!-- Header row -->
+  <div id="s4-header">
+    <button class="back-btn" onclick="confirmStopSim()">←</button>
+    <div class="s4-phase-badge pb1" id="s4-badge">加速フェーズ</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
+      <div class="step-dots" style="padding:0">
+        <div class="step-dot done"></div>
+        <div class="step-dot done"></div>
+        <div class="step-dot done"></div>
+        <div class="step-dot on"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Hz -->
+  <div id="s4-pitch-row">
+    <div class="s4-hz-val" id="s4-hz">—</div>
+    <div class="s4-hz-lbl">Hz</div>
+  </div>
+
+  <!-- Track -->
+  <div id="s4-track-wrap">
+    <div class="track-lane"></div>
+    <div class="track-stripe" style="left:30%"><div class="track-stripe-lbl">30m</div></div>
+    <div class="track-stripe" style="left:60%"><div class="track-stripe-lbl">60m</div></div>
+    <div class="track-stripe" style="left:99%;transform:translateX(-100%)"><div class="track-stripe-lbl">GOAL</div></div>
+    <div class="runner-trail" id="r-trail"></div>
+    <div class="runner-dot"   id="r-dot"></div>
+  </div>
+
+  <!-- Waveform -->
+  <div id="s4-wave">
+    <div class="wbar" id="w1"></div><div class="wbar" id="w2"></div>
+    <div class="wbar" id="w3"></div><div class="wbar" id="w4"></div>
+    <div class="wbar" id="w5"></div><div class="wbar" id="w6"></div>
+    <div class="wbar" id="w7"></div><div class="wbar" id="w8"></div>
+    <div class="wbar" id="w9"></div>
+  </div>
+
+  <!-- Stats -->
+  <div id="s4-stats">
+    <div class="s4-stat">
+      <div class="s4-stat-val" id="s4-elapsed" style="color:var(--text)">0.00</div>
+      <div class="s4-stat-lbl">秒</div>
+    </div>
+    <div class="s4-stat">
+      <div class="s4-stat-val" id="s4-dist" style="color:var(--gold)">0</div>
+      <div class="s4-stat-lbl">m</div>
+    </div>
+    <div class="s4-stat">
+      <div class="s4-stat-val" id="s4-remain" style="color:var(--blue)">—</div>
+      <div class="s4-stat-lbl">残り秒</div>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div id="s4-prog-track"><div id="s4-prog-fill"></div></div>
+
+  <div id="s4-spacer"></div>
+
+  <!-- Stop button -->
+  <div id="s4-stop-area">
+    <button class="btn btn-danger" onclick="confirmStopSim()">■ 停止</button>
+  </div>
+
+  <!-- Completion overlay -->
+  <div id="s4-complete">
+    <div class="comp-trophy">🏆</div>
+    <div class="comp-goal">G O A L !</div>
+    <div class="comp-stats">
+      <div class="comp-stat-row">CNS スコア: <span class="comp-stat-val" id="co-cns">—</span></div>
+      <div class="comp-stat-row">使用ピッチ: <span class="comp-stat-val" id="co-pitch">—</span> Hz</div>
+      <div class="comp-stat-row">プロファイル: <span class="comp-stat-val" id="co-prof">—</span></div>
+    </div>
+    <div class="comp-btns">
+      <button class="btn btn-primary" onclick="restartSim()">▶ もう一度</button>
+      <button class="btn btn-ghost"   onclick="goTo(1)">設定に戻る</button>
+    </div>
+  </div>
+
+</div><!-- /s4 -->
+
+
+<!-- ░░░ MILESTONE FLASH ░░░ -->
+<div id="mflash">
+  <div class="mf-text" id="mf-text">30m</div>
+  <div class="mf-sub"  id="mf-sub">通過！</div>
+</div>
+
+
+<!-- ░░░ SETTINGS SHEET ░░░ -->
+<div id="sheet-overlay" onclick="toggleSettings()"></div>
+<div id="settings-sheet">
+  <div class="sheet-handle"></div>
+  <div style="font-size:16px;font-weight:800;margin-bottom:18px">⚙ 設定</div>
+
+  <div class="card-lbl">ベースライン反応速度</div>
+  <div class="input-row-hz">
+    <div class="ir-lbl">
+      <div class="ir-main">平均反応時間</div>
+      <div class="ir-sub">あなたの基準値（ms）</div>
+    </div>
+    <div class="stepper">
+      <button class="step-btn" style="width:38px;height:38px;font-size:18px" onclick="nudgeBaseline(-5)">−</button>
+      <div style="min-width:60px;text-align:center;font-size:22px;font-weight:800" id="bl-display">150</div>
+      <button class="step-btn" style="width:38px;height:38px;font-size:18px" onclick="nudgeBaseline(+5)">+</button>
+    </div>
+  </div>
+
+  <div style="font-size:12px; color:var(--muted); line-height:1.8; margin: 12px 0 16px">
+    トップスプリンターの平均は <span style="color:var(--gold)">120〜160ms</span>。
+    自分のベスト付近の値を設定すると日々の変動を正確に把握できます。
+  </div>
+
+  <button class="btn btn-primary" onclick="saveSettings()">保存して閉じる</button>
+</div>
+
+
+<script>
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+const S = {
+  // Settings
+  baseline:   150,    // ms
+  targetTime: 10.80,  // s
+  stride:     2.10,   // m
+  profile:    'balance',
+  maxPitch:   4.89,   // Hz (auto-calc)
+  finalPitch: 4.89,   // Hz (may be adjusted)
+
+  // CNS
+  cnsPhase:   'idle', // idle|marks|set|wait|fire|done|foul
+  cnsGunTime: null,
+  cnsRT:      null,
+  cnsScore:   null,
+  cnsHist:    [],
+  cnsTimerId: null,
+
+  // Sim
+  simRunning:    false,
+  simRAF:        null,
+  simStart:      null,   // perf.now()
+  simBeats:      [],     // [{vt, pitch}]
+  simMilestones: [],
+};
+
+// ── Profile data ──────────────────────────────────────
+const PROF = {
+  front: {
+    label: '前半型 🔥', icon: '🔥',
+    p1s:0.88, p1e:0.97, p2:1.00, p3:0.94,
+    ratios:[0.355,0.265,0.38],
+    tags:['88%→97%','100%','94%'],
+    desc:'爆発的な加速を武器にする前半ダッシュ型。0〜30mで最大パワーを発揮し、後半は高速維持に集中します。',
+  },
+  balance: {
+    label: 'バランス型 ⚡', icon: '⚡',
+    p1s:0.90, p1e:0.95, p2:1.00, p3:0.98,
+    ratios:[0.37,0.29,0.34],
+    tags:['90%→95%','100%','98%'],
+    desc:'加速・最高速・維持のバランスが取れたスタンダードプロファイル。ほとんどの選手に最適な設定です。',
+  },
+  back: {
+    label: '後半型 💪', icon: '💪',
+    p1s:0.88, p1e:0.92, p2:0.97, p3:1.00,
+    ratios:[0.38,0.31,0.31],
+    tags:['88%→92%','97%','100%'],
+    desc:'前半をセーブし、60m以降でピッチを最大化するラストスパート型。後半に強い選手に向いています。',
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════════════════
+let _audioCtx = null;
+function ac() {
+  if (!_audioCtx || _audioCtx.state === 'closed')
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+function tone(freq, dur, t, type='sine', vol=0.45, atk=0.004) {
+  const ctx = ac();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + atk);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+
+function playGun(t) {
+  const ctx = ac();
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, Math.floor(sr * 0.38), sr);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sr * 0.042));
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const ws  = ctx.createWaveShaper();
+  const cv  = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const x = (i * 2) / 256 - 1;
+    cv[i] = (Math.PI + 500) * x / (Math.PI + 500 * Math.abs(x));
+  }
+  ws.curve = cv;
+  const gn  = ctx.createGain();
+  gn.gain.setValueAtTime(2.4, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+  src.connect(ws); ws.connect(gn); gn.connect(ctx.destination);
+  src.start(t);
+  // low body
+  tone(75,  0.20, t, 'sine',   0.9);
+  tone(155, 0.10, t, 'square', 0.35);
+}
+
+function beepTick(t) {
+  tone(920, 0.032, t, 'sine', 0.36);
+}
+function beepMark(t) {
+  tone(1280, 0.10, t, 'sine', 0.65);
+  tone(1760, 0.07, t+0.09, 'sine', 0.42);
+}
+function beepGoal(t) {
+  tone(1047, 0.09, t,      'sine', 0.75);
+  tone(1319, 0.09, t+0.11, 'sine', 0.75);
+  tone(1568, 0.09, t+0.22, 'sine', 0.75);
+  tone(2093, 0.30, t+0.33, 'sine', 0.92);
+}
+function playMarks(t) { tone(440, 0.14, t, 'sine', 0.38); }
+function playSet(t)   { tone(660, 0.11, t, 'sine', 0.50); }
+
+// ═══════════════════════════════════════════════════════
+// SCREEN NAVIGATION
+// ═══════════════════════════════════════════════════════
+let _cur = 1;
+const SCREENS = ['s1','s2','s3','s4'];
+
+function goTo(n) {
+  const prev = _cur;
+  _cur = n;
+  SCREENS.forEach((id, i) => {
+    const sn = i + 1;
+    const el = document.getElementById(id);
+    if (sn === n)      { el.className = 'screen s-active'; }
+    else if (sn < n)   { el.className = 'screen s-left'; }
+    else               { el.className = 'screen s-right'; }
+  });
+  // Scroll to top for scrollable screens
+  if (n === 1 || n === 3) {
+    const el = document.getElementById(SCREENS[n-1]);
+    setTimeout(() => el.scrollTop = 0, 50);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// SCREEN 1 — SETUP
+// ═══════════════════════════════════════════════════════
+let _repeatTimer = null;
+let _repeatInterval = null;
+
+function startRepeat(field, delta) {
+  applyDelta(field, delta);
+  _repeatTimer = setTimeout(() => {
+    _repeatInterval = setInterval(() => applyDelta(field, delta), 80);
+  }, 400);
+}
+
+function stopRepeat() {
+  clearTimeout(_repeatTimer);
+  clearInterval(_repeatInterval);
+}
+
+function applyDelta(field, delta) {
+  if (field === 'tt') {
+    S.targetTime = parseFloat(Math.max(9.50, Math.min(15.0, S.targetTime + delta)).toFixed(2));
+    document.getElementById('tt-val').textContent = S.targetTime.toFixed(2);
+  } else {
+    S.stride = parseFloat(Math.max(1.0, Math.min(3.5, S.stride + delta)).toFixed(2));
+    document.getElementById('st-val').textContent = S.stride.toFixed(2);
+  }
+  calcMaxPitch();
+}
+
+function calcMaxPitch() {
+  const avg  = 100 / S.targetTime;
+  const avgP = avg / S.stride;
+  S.maxPitch = parseFloat((avgP * 1.11).toFixed(2));
+  document.getElementById('pp-val').textContent     = S.maxPitch.toFixed(2);
+  document.getElementById('pp-formula').textContent =
+    `${S.targetTime.toFixed(2)}秒 ÷ ${S.stride.toFixed(2)}m × 補正1.11`;
+}
+
+function setProfile(p) {
+  S.profile = p;
+  ['front','balance','back'].forEach(k =>
+    document.getElementById(`pf-${k}`).classList.toggle('sel', k === p));
+  document.getElementById('prof-desc').textContent = PROF[p].desc;
+}
+
+function goToS2() {
+  ac(); // unlock audio on user gesture
+  goTo(2);
+  resetCNS();
+}
+
+// ═══════════════════════════════════════════════════════
+// SCREEN 2 — CNS TEST
+// ═══════════════════════════════════════════════════════
+let _rtRAF   = null;
+let _rtStart = null;
+
+function startCNS() {
+  clearTimeout(S.cnsTimerId);
+  cancelAnimationFrame(_rtRAF);
+  S.cnsPhase = 'marks';
+
+  setArena('ON YOUR MARKS', 'スタートの構えを取ってください', 'c-marks');
+  showEl('s2-instr'); hideEl('s2-start-btn');
+
+  playMarks(ac().currentTime);
+
+  S.cnsTimerId = setTimeout(() => {
+    S.cnsPhase = 'set';
+    setArena('S E T', '号砲に集中…', 'c-set');
+    playSet(ac().currentTime);
+
+    const delay = 1200 + Math.random() * 2700;
+    S.cnsTimerId = setTimeout(() => {
+      S.cnsPhase = 'fire';
+      const t = ac().currentTime;
+      playGun(t);
+      S.cnsGunTime = performance.now();
+      fireFlash();
+      setArena('▶  T A P !', '今すぐどこでもタップ！', 'c-fire');
+      startRTTimer();
+    }, delay);
+  }, 1900);
+}
+
+function startRTTimer() {
+  _rtStart = performance.now();
+  const tick = () => {
+    if (S.cnsPhase !== 'fire') return;
+    const el = document.getElementById('arena-rt');
+    if (el) el.textContent = `${(performance.now() - _rtStart).toFixed(0)} ms…`;
+    _rtRAF = requestAnimationFrame(tick);
+  };
+  _rtRAF = requestAnimationFrame(tick);
+}
+
+function handleTap() {
+  if (S.cnsPhase === 'fire') {
+    cancelAnimationFrame(_rtRAF);
+    const rt = performance.now() - S.cnsGunTime;
+    const score = Math.round((S.baseline / rt) * 100);
+    S.cnsRT    = rt;
+    S.cnsScore = score;
+    S.cnsPhase = 'done';
+    S.cnsHist.unshift({ rt, score });
+    if (S.cnsHist.length > 4) S.cnsHist.pop();
+
+    // Flash result briefly then auto-advance
+    setArena(`${Math.round(rt)} ms`, `CNS ${score}%`, score >= 105 ? 'c-fire' : score >= 98 ? 'c-set' : 'c-marks');
+    document.getElementById('arena-rt').textContent = '';
+    setTimeout(() => {
+      calcFinalPitch();
+      renderResult();
+      goTo(3);
+    }, 1400);
+    return;
+  }
+  if (S.cnsPhase === 'marks' || S.cnsPhase === 'set') {
+    clearTimeout(S.cnsTimerId);
+    cancelAnimationFrame(_rtRAF);
+    S.cnsPhase = 'foul';
+    setArena('フライング！', 'やり直します…', 'c-foul');
+    S.cnsTimerId = setTimeout(() => resetCNS(), 1600);
+  }
+}
+
+function resetCNS() {
+  clearTimeout(S.cnsTimerId);
+  cancelAnimationFrame(_rtRAF);
+  S.cnsPhase = 'idle';
+  setArena('READY', '下のボタンでテスト開始', 'c-ready');
+  document.getElementById('arena-rt').textContent = '';
+  showEl('s2-start-btn'); hideEl('s2-instr');
+}
+
+function setArena(text, hint, cls) {
+  const t = document.getElementById('arena-text');
+  const h = document.getElementById('arena-hint');
+  t.className = `arena-main-text ${cls}`;
+  t.textContent = text;
+  h.textContent = hint;
+}
+
+function fireFlash() {
+  const el = document.getElementById('arena-flash');
+  el.classList.remove('fire-anim');
+  void el.offsetWidth;
+  el.classList.add('fire-anim');
+}
+
+// ═══════════════════════════════════════════════════════
+// SCREEN 3 — RESULT + CONFIRM
+// ═══════════════════════════════════════════════════════
+function calcFinalPitch() {
+  S.finalPitch = S.cnsScore
+    ? parseFloat((S.maxPitch * S.cnsScore / 100).toFixed(2))
+    : S.maxPitch;
+}
+
+function renderResult() {
+  const rt    = S.cnsRT;
+  const score = S.cnsScore;
+
+  document.getElementById('r-rt').textContent    = Math.round(rt);
+  document.getElementById('r-score').textContent = `${score}%`;
+
+  let cond, col;
+  if      (score >= 112) { cond = '🔥 超絶好調！';  col = '#FFD700'; }
+  else if (score >= 105) { cond = '⚡ 絶好調';       col = '#FFD700'; }
+  else if (score >= 98)  { cond = '✅ 良好';          col = '#00E87A'; }
+  else if (score >= 90)  { cond = '⚠️ やや疲労';     col = '#FF6B35'; }
+  else                   { cond = '🛑 疲労あり';      col = '#FF4444'; }
+
+  const cEl = document.getElementById('r-cond');
+  cEl.textContent  = cond; cEl.style.color = col;
+
+  // Ring (C = 2π×46 ≈ 289.03)
+  const pct = Math.min(1, Math.max(0, (Math.min(score, 130) - 60) / 70));
+  document.getElementById('ring-fill').style.strokeDashoffset = 289.03 * (1 - pct);
+  document.getElementById('ring-fill').style.stroke = col;
+  document.getElementById('r-bar').style.width = `${pct * 100}%`;
+  document.getElementById('r-score').style.color = col;
+
+  // History
+  document.getElementById('r-hist').innerHTML = S.cnsHist.map((h, i) =>
+    `<div class="hist-chip">${i===0?'今回':i+'回前'}: ${Math.round(h.rt)}ms (${h.score}%)</div>`
+  ).join('');
+
+  // Pitch
+  document.getElementById('pc-val').textContent   = S.finalPitch.toFixed(2);
+  document.getElementById('final-val').textContent = S.finalPitch.toFixed(2);
+  document.getElementById('pc-formula').textContent = S.cnsScore
+    ? `${S.maxPitch.toFixed(2)} Hz × ${S.cnsScore}% CNS = ${S.finalPitch.toFixed(2)} Hz`
+    : `MAX: ${S.maxPitch.toFixed(2)} Hz`;
+
+  renderPhaseMini();
+}
+
+function nudgeFinal(d) {
+  S.finalPitch = parseFloat(Math.max(3.0, Math.min(7.0, S.finalPitch + d)).toFixed(2));
+  document.getElementById('final-val').textContent = S.finalPitch.toFixed(2);
+  renderPhaseMini();
+}
+
+function renderPhaseMini() {
+  const p  = PROF[S.profile];
+  const fp = S.finalPitch;
+  const tt = S.targetTime;
+  const r  = p.ratios;
+  const t  = r.map(x => (tt * x).toFixed(2));
+
+  document.getElementById('phase-mini').innerHTML = `
+    <div class="pm-row pm-1">
+      <div class="pm-dot" style="background:var(--blue)"></div>
+      <div class="pm-text">
+        <strong style="color:var(--blue)">Phase 1</strong> · 0〜30m · ${t[0]}s<br>
+        <span style="color:var(--muted)">${p.tags[0]}</span>
+      </div>
+      <div class="pm-hz" style="color:var(--blue)">${(fp*p.p1s).toFixed(2)}→${(fp*p.p1e).toFixed(2)}</div>
+    </div>
+    <div class="pm-row pm-2">
+      <div class="pm-dot" style="background:var(--gold)"></div>
+      <div class="pm-text">
+        <strong style="color:var(--gold)">Phase 2</strong> · 30〜60m · ${t[1]}s<br>
+        <span style="color:var(--muted)">${p.tags[1]}</span>
+      </div>
+      <div class="pm-hz" style="color:var(--gold)">${(fp*p.p2).toFixed(2)}</div>
+    </div>
+    <div class="pm-row pm-3">
+      <div class="pm-dot" style="background:var(--green)"></div>
+      <div class="pm-text">
+        <strong style="color:var(--green)">Phase 3</strong> · 60〜100m · ${t[2]}s<br>
+        <span style="color:var(--muted)">${p.tags[2]}</span>
+      </div>
+      <div class="pm-hz" style="color:var(--green)">${(fp*p.p3).toFixed(2)}</div>
+    </div>`;
+}
+
+function goToS4() {
+  goTo(4);
+  startSim();
+}
+
+// ═══════════════════════════════════════════════════════
+// SCREEN 4 — SIMULATION
+// ═══════════════════════════════════════════════════════
+function buildBeats(fp, tt, p) {
+  const beats = [];
+  const r = p.ratios;
+  const d1 = tt*r[0], d12 = d1+tt*r[1];
+
+  // Phase 1 ramp
+  let t = 0;
+  while (t < d1 && beats.length < 600) {
+    const pg = t / d1;
+    const hz = fp*p.p1s + (fp*p.p1e - fp*p.p1s) * pg;
+    beats.push({ vt: t*1000, hz });
+    t += 1/hz;
+  }
+  // Phase 2 constant
+  const hz2 = fp*p.p2;
+  t = d1;
+  while (t < d12 && beats.length < 600) {
+    beats.push({ vt: t*1000, hz: hz2 });
+    t += 1/hz2;
+  }
+  // Phase 3 constant
+  const hz3 = fp*p.p3;
+  t = d12;
+  while (t < tt && beats.length < 600) {
+    beats.push({ vt: t*1000, hz: hz3 });
+    t += 1/hz3;
+  }
+  return beats;
+}
+
+function startSim() {
+  const fp = S.finalPitch;
+  const tt = S.targetTime;
+  const p  = PROF[S.profile];
+  const r  = p.ratios;
+
+  // Clear completion overlay
+  document.getElementById('s4-complete').classList.remove('show');
+
+  S.simBeats = buildBeats(fp, tt, p);
+  S.simMilestones = [
+    { vt: tt*r[0]*1000,           text:'30m 通過！', sub:'MAX PHASE',    col:'#4A9EFF', kind:'mark', phaseIdx:1, done:false },
+    { vt:(tt*r[0]+tt*r[1])*1000,  text:'60m 通過！', sub:'維持フェーズへ',col:'#FFD700', kind:'mark', phaseIdx:2, done:false },
+    { vt: tt*1000,                 text:'GOAL !!',   sub:'🏆',           col:'#00E87A', kind:'goal', phaseIdx:2, done:false },
+  ];
+
+  // Pre-schedule ALL audio via AudioContext timeline
+  const acStart = ac().currentTime + 0.15;
+  S.simBeats.forEach(b => beepTick(acStart + b.vt/1000));
+  S.simMilestones.forEach(m => {
+    const fn = m.kind === 'goal' ? beepGoal : beepMark;
+    fn(acStart + m.vt/1000);
+  });
+
+  S.simRunning = true;
+  S.simStart   = performance.now() + 150;
+
+  document.getElementById('s4-wave').style.opacity = '1';
+  document.getElementById('s4-hz').textContent = fp.toFixed(2);
+
+  S.simRAF = requestAnimationFrame(simTick);
+}
+
+function simTick() {
+  if (!S.simRunning) return;
+
+  const elapsed = (performance.now() - S.simStart) / 1000;
+  const tt      = S.targetTime;
+
+  if (elapsed >= tt + 0.7) { finishSim(); return; }
+
+  const prog = Math.min(1, Math.max(0, elapsed / tt));
+  const dist = Math.round(prog * 100);
+  const pos  = Math.min(96, 2 + prog * 94);
+
+  document.getElementById('s4-elapsed').textContent = Math.max(0, elapsed).toFixed(2);
+  document.getElementById('s4-dist').textContent    = dist;
+  document.getElementById('s4-remain').textContent  = Math.max(0, tt - elapsed).toFixed(1);
+  document.getElementById('r-dot').style.left       = `${pos}%`;
+  document.getElementById('r-trail').style.width    = `${pos}%`;
+  document.getElementById('s4-prog-fill').style.width = `${prog*100}%`;
+
+  // Phase
+  const p   = PROF[S.profile];
+  const d1  = tt*p.ratios[0];
+  const d12 = d1 + tt*p.ratios[1];
+  let curHz, phaseIdx;
+
+  if (elapsed < d1) {
+    phaseIdx = 0;
+    const pg = Math.max(0, elapsed) / d1;
+    curHz = S.finalPitch*p.p1s + (S.finalPitch*p.p1e - S.finalPitch*p.p1s)*pg;
+  } else if (elapsed < d12) {
+    phaseIdx = 1;
+    curHz = S.finalPitch * p.p2;
+  } else {
+    phaseIdx = 2;
+    curHz = S.finalPitch * p.p3;
+  }
+
+  document.getElementById('s4-hz').textContent = curHz.toFixed(2);
+
+  const badge = document.getElementById('s4-badge');
+  const phases = [
+    { cls:'pb1', name:'加速フェーズ' },
+    { cls:'pb2', name:'最高速フェーズ' },
+    { cls:'pb3', name:'維持フェーズ' },
+  ];
+  badge.className = `s4-phase-badge ${phases[phaseIdx].cls}`;
+  badge.textContent = phases[phaseIdx].name;
+
+  // Milestones
+  S.simMilestones.forEach(m => {
+    if (!m.done && elapsed*1000 >= m.vt) {
+      m.done = true;
+      showMilestone(m.text, m.sub, m.col);
+    }
+  });
+
+  animWave(elapsed, curHz);
+
+  S.simRAF = requestAnimationFrame(simTick);
+}
+
+function animWave(elapsed, hz) {
+  const interval = 1 / hz;
+  const phase = (elapsed % interval) / interval;
+  const pulse = Math.sin(phase * Math.PI);
+  const base  = [5,10,18,28,38,28,18,10,5];
+  for (let i = 1; i <= 9; i++) {
+    const el = document.getElementById(`w${i}`);
+    if (!el) continue;
+    const h = base[i-1]*0.2 + base[i-1]*0.8*pulse;
+    el.style.height  = `${Math.max(3, h)}px`;
+    el.style.opacity = `${0.25 + 0.75*pulse}`;
+  }
+}
+
+function showMilestone(text, sub, col) {
+  const fl  = document.getElementById('mflash');
+  document.getElementById('mf-text').textContent = text;
+  document.getElementById('mf-text').style.color = col;
+  document.getElementById('mf-sub').textContent  = sub;
+  document.getElementById('mf-sub').style.color  = col;
+  fl.classList.remove('show');
+  void fl.offsetWidth;
+  fl.classList.add('show');
+  // BG flash
+  document.body.style.background =
+    `radial-gradient(ellipse at center, ${col}1a 0%, var(--bg) 60%)`;
+  setTimeout(() => { document.body.style.background = ''; }, 600);
+}
+
+function finishSim() {
+  S.simRunning = false;
+  cancelAnimationFrame(S.simRAF);
+
+  const p = PROF[S.profile];
+  document.getElementById('co-cns').textContent   = S.cnsScore ? `${S.cnsScore}%` : '未測定';
+  document.getElementById('co-pitch').textContent = S.finalPitch.toFixed(2);
+  document.getElementById('co-prof').textContent  = p.label;
+
+  document.getElementById('s4-complete').classList.add('show');
+  document.getElementById('s4-wave').style.opacity = '0';
+}
+
+function stopSim() {
+  S.simRunning = false;
+  cancelAnimationFrame(S.simRAF);
+  S.simMilestones.forEach(m => m.done = false);
+  document.getElementById('s4-wave').style.opacity = '0';
+  resetSimUI();
+}
+
+function confirmStopSim() {
+  if (!S.simRunning) { goTo(3); return; }
+  // Simple confirm
+  if (confirm('シミュレーションを停止しますか？')) {
+    stopSim();
+    goTo(3);
+  }
+}
+
+function restartSim() {
+  document.getElementById('s4-complete').classList.remove('show');
+  resetSimUI();
+  S.simMilestones.forEach(m => m.done = false);
+  startSim();
+}
+
+function resetSimUI() {
+  document.getElementById('r-dot').style.left        = '2%';
+  document.getElementById('r-trail').style.width     = '0%';
+  document.getElementById('s4-prog-fill').style.width = '0%';
+  document.getElementById('s4-elapsed').textContent  = '0.00';
+  document.getElementById('s4-dist').textContent     = '0';
+  document.getElementById('s4-remain').textContent   = '—';
+  document.getElementById('s4-hz').textContent       = '—';
+}
+
+// ═══════════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════════
+function toggleSettings() {
+  document.getElementById('settings-sheet').classList.toggle('open');
+  document.getElementById('sheet-overlay').classList.toggle('open');
+  document.getElementById('bl-display').textContent = S.baseline;
+}
+
+function nudgeBaseline(d) {
+  S.baseline = Math.max(80, Math.min(350, S.baseline + d));
+  document.getElementById('bl-display').textContent = S.baseline;
+}
+
+function saveSettings() {
+  toggleSettings();
+}
+
+// ═══════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════
+function showEl(id) { document.getElementById(id).style.display = ''; }
+function hideEl(id) { document.getElementById(id).style.display = 'none'; }
+
+// Prevent double-tap zoom globally (iOS fix)
+let _lastTap = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - _lastTap < 320) e.preventDefault();
+  _lastTap = now;
+}, { passive: false });
+
+// Prevent pinch-zoom
+document.addEventListener('touchmove', e => {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+(function init() {
+  calcMaxPitch();
+  setProfile('balance');
+  goTo(1);
+})();
+</script>
+</body>
+</html>
